@@ -1,79 +1,14 @@
 /*
-
-Para compilar de dentro do VS Code:
-
-Windows/Linux: CTRL+SHIFT+B (Terminal -> Run Build Task)
-macOS: COMMAND+SHIFT+B
-
-Para executar de dentro do VS Code:
-
-Executar normalmente: CTRL+F5 (Run -> Run Without Debugging)
-Debugar: F5 (Run -> Start Debugging)
-
-Pelo terminal:
-
-Windows: mingw32-make
-Linux/macOS: make
-
-Para executar:
+Compilar: make (Windows: mingw32-make)
 
 ./bagunceitor <imagem> [chave]
-    Demonstracao completa: bagunca a imagem, grava baguncada.png,
-    desfaz a bagunca, grava recuperada.png e confere byte a byte
-    se a recuperada e identica a original.
-
 ./bagunceitor -e <imagem> [chave] [saida.png]
-    Apenas bagunca (C e depois D).
-
 ./bagunceitor -d <baguncada.png> [chave] [saida.png]
-    Apenas recupera (D^-1 e depois C^-1). Precisa da mesma chave.
-
-------------------------------------------------------------------------
-ESTRATEGIA
-
-  Original --C--> --D--> Baguncada --D^-1--> --C^-1--> Original
-
-  Chave: um texto qualquer (ex.: "progbn2026"). Dele derivamos, com o
-  hash FNV-1a, sementes de 32 bits para um gerador pseudoaleatorio
-  xorshift32. Mesma chave => mesma sequencia => as inversas conseguem
-  "refazer o caminho de volta".
-
-  C (confusao) - atua byte a byte, sobre os w*h*3 bytes da imagem, em
-  ordem de memoria. Para o byte i, sorteia k (8 bits) e r (0..7):
-
-      y1 = x ^ k                (XOR com a chave)
-      y2 = rotl8(y1, r)         (rotacao circular de r bits)
-      y3 = y2 * 157  (mod 256)  (multiplicacao por numero impar)
-      c  = y3 + c_anterior      (encadeamento com o byte cifrado anterior)
-
-  C^-1, para cada byte, faz o caminho contrario:
-
-      y3 = c - c_anterior
-      y2 = y3 * 157^-1 (mod 256)   (157^-1 = 181, pois 157*181 = 28417 = 111*256 + 1)
-      y1 = rotr8(y2, r)
-      x  = y1 ^ k
-
-  Cada passo e uma bijecao em 0..255 (XOR com k e a propria inversa,
-  rotacao a esquerda e desfeita pela rotacao a direita, multiplicar por
-  impar tem inverso modular e somar e desfeito subtraindo), logo C e
-  inversivel.
-
-  D (difusao) - permuta posicoes, sem alterar valores, em 2 granularidades:
-
-    1) byte: dentro de cada pixel, os 3 canais sao rodados 0, 1 ou 2
-       posicoes (RGB -> GBR -> BRG), conforme sorteio;
-    2) pixel: um vetor perm[] com uma permutacao de 0..n-1 e gerado pelo
-       embaralhamento de Fisher-Yates guiado pela chave, e o pixel
-       destino[i] recebe origem[perm[i]].
-
-  D^-1 gera o mesmo perm[] e faz destino[perm[i]] = origem[i]
-  (o mapeamento reverso), depois roda os canais no sentido contrario.
-
 */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>  // Para usar strings
+#include <string.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -81,29 +16,24 @@ ESTRATEGIA
 #include <stb_image.h>
 #include <stb_image_write.h>
 
-// Um pixel Pixel (24 bits)
 typedef struct {
   unsigned char r, g, b;
 } Pixel;
 
-// Uma imagem Pixel
 typedef struct {
-  int width, height;  // largura, altura
-  int channels;       // qtd de canais (geralmente 3, RGB)
+  int width, height;
+  int channels;
   Pixel* pixels;
 } Img;
 
 #define CHAVE_PADRAO "progbn2026"
 
-// "Sais" para que confusao e difusao usem sequencias diferentes
 #define SAL_CONFUSAO 0xC0FFEE01u
 #define SAL_CANAIS 0xD1F0500Au
 #define SAL_PIXELS 0xD1F0500Bu
 
-// Multiplicador da confusao (precisa ser impar para ter inverso mod 256)
 #define MULT 157u
 
-// Protótipos
 void load(char* name, Img* pic);
 Img nova_imagem(int width, int height);
 void mostra_bytes(const char* titulo, const Img* pic);
@@ -135,7 +65,6 @@ int main(int argc, char* argv[]) {
     exit(1);
   }
 
-  // Modos -e e -d: so uma das direcoes, lendo/gravando arquivos
   if (strcmp(argv[1], "-e") == 0 || strcmp(argv[1], "-d") == 0) {
     if (argc < 3) {
       printf("Faltou o nome da imagem\n");
@@ -159,7 +88,6 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  // Demonstracao completa
   const char* chave = argc > 2 ? argv[2] : CHAVE_PADRAO;
   Img in;
   load(argv[1], &in);
@@ -169,7 +97,6 @@ int main(int argc, char* argv[]) {
   Img baguncada = nova_imagem(in.width, in.height);
   Img recuperada = nova_imagem(in.width, in.height);
 
-  // Etapas isoladas, so para ilustrar o efeito de cada uma
   Img so_c = nova_imagem(in.width, in.height);
   memcpy(so_c.pixels, in.pixels, (size_t)in.width * in.height * sizeof(Pixel));
   confusao(&so_c, chave);
@@ -179,12 +106,10 @@ int main(int argc, char* argv[]) {
   difusao(&in, &so_d, chave);
   grava("etapa_difusao.png", &so_d);
 
-  // Ida: Original -> C -> D -> Baguncada
   printf("Processando...\n");
   bagunca(&in, &baguncada, chave);
   grava("baguncada.png", &baguncada);
 
-  // Volta: Baguncada -> D^-1 -> C^-1 -> Recuperada
   recupera(&baguncada, &recuperada, chave);
   grava("recuperada.png", &recuperada);
 
@@ -203,7 +128,6 @@ int main(int argc, char* argv[]) {
          memcmp(in.pixels, recuperada.pixels, total),
          dif_rec == 0 ? "RECUPERACAO EXATA" : "FALHOU");
 
-  // Recuperar com a chave errada nao funciona
   Img errada = nova_imagem(in.width, in.height);
   recupera(&baguncada, &errada, "chave-errada");
   grava("recuperada_chave_errada.png", &errada);
@@ -218,41 +142,29 @@ int main(int argc, char* argv[]) {
   return dif_rec == 0 ? 0 : 2;
 }
 
-// ---------------------------------------------------------------------
-// Orquestracao
-// ---------------------------------------------------------------------
-
-// Original -> C -> D -> Baguncada
 void bagunca(const Img* orig, Img* baguncada, const char* chave) {
   size_t bytes = (size_t)orig->width * orig->height * sizeof(Pixel);
   Img tmp = nova_imagem(orig->width, orig->height);
   memcpy(tmp.pixels, orig->pixels, bytes);
-  confusao(&tmp, chave);             // C (no lugar)
-  difusao(&tmp, baguncada, chave);   // D (tmp -> baguncada)
+  confusao(&tmp, chave);
+  difusao(&tmp, baguncada, chave);
   free(tmp.pixels);
 }
 
-// Baguncada -> D^-1 -> C^-1 -> Original (ordem contraria)
 void recupera(const Img* baguncada, Img* recuperada, const char* chave) {
-  difusao_inv(baguncada, recuperada, chave);  // D^-1
-  confusao_inv(recuperada, chave);            // C^-1 (no lugar)
+  difusao_inv(baguncada, recuperada, chave);
+  confusao_inv(recuperada, chave);
 }
 
-// ---------------------------------------------------------------------
-// Gerador pseudoaleatorio derivado da chave
-// ---------------------------------------------------------------------
-
-// Hash FNV-1a de 32 bits do texto da chave, misturado com um "sal"
 uint32_t semente(const char* chave, uint32_t sal) {
   uint32_t h = 2166136261u ^ sal;
   for (const unsigned char* p = (const unsigned char*)chave; *p; p++) {
     h ^= *p;
     h *= 16777619u;
   }
-  return h ? h : 1;  // xorshift nao pode comecar em zero
+  return h ? h : 1;  // xorshift trava no 0
 }
 
-// xorshift32 (Marsaglia): rapido e totalmente determinado pela semente
 uint32_t xorshift32(uint32_t* estado) {
   uint32_t x = *estado;
   x ^= x << 13;
@@ -260,10 +172,6 @@ uint32_t xorshift32(uint32_t* estado) {
   x ^= x << 5;
   return *estado = x;
 }
-
-// ---------------------------------------------------------------------
-// Confusao: substituicao de valores, byte a byte
-// ---------------------------------------------------------------------
 
 unsigned char rotl8(unsigned char v, int r) {
   return (unsigned char)((v << r) | (v >> ((8 - r) & 7)));
@@ -273,20 +181,17 @@ unsigned char rotr8(unsigned char v, int r) {
   return (unsigned char)((v >> r) | (v << ((8 - r) & 7)));
 }
 
-// Inverso multiplicativo mod 256 de um numero impar (metodo de Newton:
-// cada iteracao dobra a quantidade de bits corretos: 3 -> 6 -> 12)
 unsigned char inverso_mod256(unsigned char a) {
-  unsigned char inv = a;  // a*a == 1 (mod 8) para todo impar
+  unsigned char inv = a;
   for (int i = 0; i < 3; i++) inv = (unsigned char)(inv * (2 - a * inv));
   return inv;
 }
 
-// A imagem e tratada como um vetor de w*h*3 bytes, percorrido com ponteiro
 void confusao(Img* pic, const char* chave) {
   uint32_t estado = semente(chave, SAL_CONFUSAO);
   unsigned char* p = (unsigned char*)pic->pixels;
   unsigned char* fim = p + (size_t)pic->width * pic->height * 3;
-  unsigned char anterior = (unsigned char)estado;  // "vetor inicial"
+  unsigned char anterior = (unsigned char)estado;
 
   while (p < fim) {
     uint32_t sorteio = xorshift32(&estado);
@@ -320,15 +225,10 @@ void confusao_inv(Img* pic, const char* chave) {
     y = (unsigned char)(y * mult_inv);
     y = rotr8(y, r);
     *p++ = y ^ k;
-    anterior = c;  // encadeia com o valor CIFRADO, igual a ida
+    anterior = c;
   }
 }
 
-// ---------------------------------------------------------------------
-// Difusao: permutacao de posicoes
-// ---------------------------------------------------------------------
-
-// Fisher-Yates guiado pela chave: perm[i] = de onde vem o pixel i
 size_t* gera_permutacao(size_t n, const char* chave) {
   size_t* perm = malloc(n * sizeof(size_t));
   if (!perm) {
@@ -347,8 +247,6 @@ size_t* gera_permutacao(size_t n, const char* chave) {
   return perm;
 }
 
-// Roda os 3 bytes de cada pixel 0, 1 ou 2 posicoes.
-// sentido = +1 (ida) ou -1 (volta)
 void roda_canais(Img* pic, const char* chave, int sentido) {
   uint32_t estado = semente(chave, SAL_CANAIS);
   Pixel* px = pic->pixels;
@@ -358,7 +256,7 @@ void roda_canais(Img* pic, const char* chave, int sentido) {
     int passo = xorshift32(&estado) % 3;
     if (sentido < 0) passo = (3 - passo) % 3;
 
-    unsigned char* b = (unsigned char*)px;  // os 3 canais em sequencia
+    unsigned char* b = (unsigned char*)px;
     unsigned char t[3] = {b[0], b[1], b[2]};
     for (int c = 0; c < 3; c++) *(b + c) = t[(c + passo) % 3];
   }
@@ -379,22 +277,16 @@ void difusao_inv(const Img* src, Img* dst, const char* chave) {
   size_t n = (size_t)src->width * src->height;
   size_t* perm = gera_permutacao(n, chave);
 
-  // Desfaz a rotacao dos canais numa copia, para nao alterar src
   Img tmp = nova_imagem(src->width, src->height);
   memcpy(tmp.pixels, src->pixels, n * sizeof(Pixel));
   roda_canais(&tmp, chave, -1);
 
-  // Mapeamento reverso: o pixel que esta em i volta para perm[i]
   Pixel* s = tmp.pixels;
   for (size_t* p = perm; p < perm + n; p++) *(dst->pixels + *p) = *s++;
 
   free(tmp.pixels);
   free(perm);
 }
-
-// ---------------------------------------------------------------------
-// Utilitarios
-// ---------------------------------------------------------------------
 
 Img nova_imagem(int width, int height) {
   Img pic;
@@ -421,7 +313,6 @@ size_t compara(const Img* a, const Img* b) {
 }
 
 void grava(const char* nome, const Img* pic) {
-  // PNG nao tem perdas: os bytes gravados sao exatamente os da memoria
   if (!stbi_write_png(nome, pic->width, pic->height, 3, pic->pixels, 0)) {
     printf("Erro ao gravar %s\n", nome);
     exit(1);
@@ -429,7 +320,6 @@ void grava(const char* nome, const Img* pic) {
   printf("Gravado  : %s\n", nome);
 }
 
-// Exibe os 8 primeiros pixels (e seus enderecos) em hexadecimal
 void mostra_bytes(const char* titulo, const Img* pic) {
   printf("\n%s (%p):\n", titulo, (void*)pic->pixels);
   Pixel* px = pic->pixels;
@@ -439,7 +329,6 @@ void mostra_bytes(const char* titulo, const Img* pic) {
 }
 
 void load(char* name, Img* pic) {
-  // Forca 3 canais (RGB), para combinar com a struct Pixel
   pic->pixels = (Pixel*)stbi_load(name, &pic->width, &pic->height,
                                   &pic->channels, 3);
   if (!pic->pixels) {
