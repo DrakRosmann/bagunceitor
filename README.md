@@ -3,7 +3,7 @@ Programacao de Baixo Nivel - 2026/2
 
 Integrantes: Guilherme de Lima Rosmann e Matheus Lopes Azambuja
 
-Video da apresentacao (YouTube, nao listado): [https://youtu.be/XXXXXXXXXXX]
+Video da apresentacao (YouTube, nao listado): https://youtu.be/uAjDBBHjrDc
 Repositorio GitHub: https://github.com/DrakRosmann/bagunceitor
 Relatorio: relatorio.pdf (nesta pasta)
 
